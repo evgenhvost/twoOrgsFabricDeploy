@@ -12,19 +12,19 @@ probePeerOrOrderer() {
 	return 1
 }
 
-probeFabric() {
-        ssh evgenyh@$1 "ls /opt/gopath/src/github.com/hyperledger/fabric/ &> /dev/null || echo 'not found'" | grep -q "not found"
-        if [ $? -eq 0 ];then
-                echo "1"
-                return
-        fi
-        echo "0"
+checkDir() {
+    ssh evgenyh@$1 "ls $2 &> /dev/null || echo 'not found'" | grep -q "not found"
+    if [ $? -eq 0 ];then
+            echo "1"
+            return
+    fi
+    echo "0"
 }
 
-deployFabric() {
-        echo "Copying 'install.sh' to $1 and running it"
-        scp install.sh evgenyh@$1:install.sh
-        ssh evgenyh@$1 "bash install.sh"
+deployFabricScript() {
+        echo "Deploying script '$2' to '$1' and running it"
+        scp $2 evgenyh@$1:$2
+        ssh evgenyh@$1 "bash $2"
 }
 
 invoke() {
@@ -46,42 +46,82 @@ for file in configtxgen peer cryptogen; do
 done
 
 org1_peers=( peer0.org1 peer1.org1 )
-org2_peers=( peer0.org2 )
+org2_peers=( "peer0.org2" )
 orderer=( orderer )
 
 all_peers=( "${org1_peers[@]}" "${org2_peers[@]}" )
+all_cas=( "ca.org1" "ca.org2" )
 
 declare -A ips=(    ["orderer"]="9.148.244.225" \
                     ["peer0.org1"]="9.148.245.3" \
                     ["peer1.org1"]="9.148.245.10" \
                     ["peer0.org2"]="9.148.244.243" \
-                    ["peer1.org2"]="9.148.244.225" )
+                    ["peer1.org2"]="9.148.244.225" \
+                    ["ca.org1"]="9.148.245.3" \
+                    ["ca.org2"]="9.148.244.243" )
 
-orderer_ip=${ips[orderer]}
-
-for p in ${orderer[*]} ${all_peers[*]} ; do
-        echo "Checking if fabric is installed on ${ips[$p]}"
-        if [ `probeFabric ${ips[$p]}` == "1" ] ; then
-                echo "Didn't detect fabric installation on $p, proceeding to install fabric on it"
-                deployFabric ${ips[$p]}
-        else
-            echo "Fabric is installed"
-        fi
-done
-
-echo "Preparing configuration..."
-rm -rf crypto-config  # Remove previous crypto-gen generated files
-for p in ${orderer[*]} ${all_peers[*]} ; do
-	rm -rf ${p}  # Will delete the previous dirs created for each one
-done
+orderer_ip=${ips["orderer"]}
+org1_ca_ip=${ips["ca.org1"]}
+org2_ca_ip=${ips["ca.org2"]}
 
 for p in ${orderer[*]} ${all_peers[*]} ; do
-        mkdir -p ${p}/sampleconfig/crypto
-        mkdir -p ${p}/sampleconfig/tls
+    ip=${ips[$p]}
+    echo "Checking if fabric is installed on ${ip}"
+    if [ `checkDir ${ip} /opt/gopath/src/github.com/hyperledger/fabric/` == "1" ] ; then
+            echo "Didn't detect fabric installation on $p, proceeding to install fabric on it"
+            deployFabricScript ${ip} "install-fabric.sh"
+    else
+        echo "Fabric is installed"
+    fi
 done
+
+for ca in ${all_cas[*]} ; do
+    ip=${ips[$ca]}
+    echo "Checking if fabric-ca is installed on ${ip}"
+    if [ `checkDir ${ip} "/opt/gopath/src/github.com/hyperledger/fabric-ca/"` == "1" ] ; then
+            echo "Didn't detect fabric-ca installation on $ca, proceeding to install fabric-ca on it"
+            deployFabricScript ${ip} "install-fabric-ca.sh"
+    else
+        echo "Fabric-ca is installed"
+    fi
+done
+
+echo "Deleting old crypto-config generated material"
+rm -rf crypto-config
+
+for p in ${orderer[*]} ${all_peers[*]} ; do
+    echo "Deleting config dir of '$p' and creating new ${p}/sampleconfig"
+	rm -rf ${p}
+    mkdir -p ${p}/sampleconfig/crypto
+    mkdir -p ${p}/sampleconfig/tls
+done
+
+for ca in ${all_cas[*]} ; do
+    echo "Deleting ca config directory '$ca' and creating new"
+    rm -rf ${ca}
+    mkdir ${ca}
+done
+
+echo "Generating crypto content"
+./cryptogen generate --config crypto-config.yml
+
+echo "Generating genesis block from config"
+./configtxgen -profile TwoOrgsOrdererGenesis -outputBlock genesis.block -channelID system
+
+echo "Generating channel configs"
+./configtxgen -profile TwoOrgsChannel -outputCreateChannelTx example-cc.tx -channelID example-cc
+
+
+org1_ca_key=`find ./crypto-config/peerOrganizations/org1.example.com/ca -name "*_sk" -printf "%f" `
+org2_ca_key=`find ./crypto-config/peerOrganizations/org2.example.com/ca -name "*_sk" -printf "%f" `
+
+echo "Creating fabric-ca-server-config file for org1 ca from template"
+cat fabric-ca-server-config_template.yaml | sed "s/CA_NAME/${org1_ca_ip}/ ; s/CA_KEY_FILE/${org1_ca_ip}-ca-key.pem/ ; s/CERTIFICATE_FILE/${org1_ca_ip}.org1.example.com-cert.pem/" > ca.org1/fabric-ca-server-config.yaml
+
+echo "Creating fabric-ca-server-config file for org2 ca from template"
+cat fabric-ca-server-config_template.yaml | sed "s/CA_NAME/${org2_ca_ip}/ ; s/CA_KEY_FILE/${org2_ca_ip}-ca-key.pem/ ; s/CERTIFICATE_FILE/${org2_ca_ip}.org2.example.com-cert.pem/" > ca.org2/fabric-ca-server-config.yaml
 
 PROPAGATEPEERNUM=${PROPAGATEPEERNUM:-3}
-
 i=0
 org1BootPeer=${ips[${org1_peers[0]}]}
 for p in ${orderer[*]} ${org1_peers[*]} ; do
@@ -112,16 +152,6 @@ for p in ${org2_peers[*]} ; do
         cat core.yaml.template | sed "s/PROPAGATEPEERNUM/${PROPAGATEPEERNUM}/ ; s/ORG_MSP/Org2MSP/ ; s/PEERID/$ip/ ; s/ADDRESS/$ip/ ; s/ORGLEADER/$orgLeader/ ; s/BOOTSTRAP/$org2BootPeer:7051/   ; s/TLS_CERT/$ip.example.com-cert.pem/"    > ${p}/sampleconfig/core.yaml
 done
 
-echo "Generating crypto content"
-./cryptogen generate --config crypto-config.yml
-
-echo "Generating genesis block from config"
-./configtxgen -profile TwoOrgsOrdererGenesis -outputBlock genesis.block -channelID system
-
-echo "Generating channel configs"
-./configtxgen -profile TwoOrgsChannel -outputCreateChannelTx example-cc.tx -channelID example-cc
-
-
 
 mv genesis.block orderer/sampleconfig/
 cp orderer.yaml orderer/sampleconfig/
@@ -130,30 +160,44 @@ echo "Copying orderer msp crypto content"
 cp -r crypto-config/ordererOrganizations/example.com/orderers/${ips[orderer]}.example.com/msp/* orderer/sampleconfig/crypto
 cp -r crypto-config/ordererOrganizations/example.com/orderers/${ips[orderer]}.example.com/tls/* orderer/sampleconfig/tls
 
+echo "Copying CA certificates"
+cp -r crypto-config/peerOrganizations/org1.example.com/ca/${org1_ca_ip}.org1.example.com-cert.pem ca.org1/
+cp -r crypto-config/peerOrganizations/org2.example.com/ca/${org2_ca_ip}.org2.example.com-cert.pem ca.org2/
+
+echo "Copying CA keys"
+cp -r crypto-config/peerOrganizations/org1.example.com/ca/${org1_ca_key} ca.org1/${org1_ca_ip}-ca-key.pem
+cp -r crypto-config/peerOrganizations/org2.example.com/ca/${org2_ca_key} ca.org2/${org2_ca_ip}-ca-key.pem
+
+
 for p in ${org1_peers[*]} ; do
-        ip=${ips[$p]}
-        echo "Copying crypto content for $p in Org1"
-        cp -r crypto-config/peerOrganizations/org1.example.com/peers/${ip}.org1.example.com/msp/* ${p}/sampleconfig/crypto
-        cp -r crypto-config/peerOrganizations/org1.example.com/peers/${ip}.org1.example.com/tls/* ${p}/sampleconfig/tls/
+    ip=${ips[$p]}
+    echo "Copying crypto content for $p in Org1"
+    cp -r crypto-config/peerOrganizations/org1.example.com/peers/${ip}.org1.example.com/msp/* ${p}/sampleconfig/crypto
+    cp -r crypto-config/peerOrganizations/org1.example.com/peers/${ip}.org1.example.com/tls/* ${p}/sampleconfig/tls/
 done
 
 for p in ${org2_peers[*]} ; do
-        ip=${ips[$p]}
-        echo "Copying crypto content for $p in Org2"
-        cp -r crypto-config/peerOrganizations/org2.example.com/peers/${ip}.org2.example.com/msp/* ${p}/sampleconfig/crypto
-        cp -r crypto-config/peerOrganizations/org2.example.com/peers/${ip}.org2.example.com/tls/* ${p}/sampleconfig/tls/
+    ip=${ips[$p]}
+    echo "Copying crypto content for $p in Org2"
+    cp -r crypto-config/peerOrganizations/org2.example.com/peers/${ip}.org2.example.com/msp/* ${p}/sampleconfig/crypto
+    cp -r crypto-config/peerOrganizations/org2.example.com/peers/${ip}.org2.example.com/tls/* ${p}/sampleconfig/tls/
 done
 
-echo "Deploying configuration"
 
+echo "Killing old peers and orderer and copying new configuration"
 for p in ${orderer[*]} ${all_peers[*]} ; do
     ip=${ips[$p]}
-    ssh evgenyh@${ip} "pkill orderer; pkill peer" || echo ""
-    ssh evgenyh@${ip} "rm -rf /var/hyperledger/production/*"
-    ssh evgenyh@${ip} "cd /opt/gopath/src/github.com/hyperledger/fabric ; git reset HEAD --hard && git pull"
+    ssh evgenyh@${ip} "pkill -eo -SIGKILL orderer ; pkill -eo -SIGKILL peer ; rm -rf /var/hyperledger/production/* ; cd /opt/gopath/src/github.com/hyperledger/fabric ; git reset HEAD --hard && git pull "
     scp -r ${p}/sampleconfig/* evgenyh@${ip}:/opt/gopath/src/github.com/hyperledger/fabric/sampleconfig/
 done
 
+
+for p in ${all_cas[*]} ; do
+    ip=${ips[$p]}
+    echo "On $p killing old fabric-ca process, deleting previous data in /bin and copying new configurations"
+    ssh evgenyh@${ip} "pkill -efx -SIGKILL \"./fabric-ca-server start\" || echo \"No fabric-ca to kill\" ; rm -rf /opt/gopath/src/github.com/hyperledger/fabric-ca/bin/* ; cd /opt/gopath/src/github.com/hyperledger/fabric-ca ; git reset HEAD --hard && git pull ; . ~/.profile ;  make fabric-ca-server"
+    scp -r ${p}/* evgenyh@${ip}:/opt/gopath/src/github.com/hyperledger/fabric-ca/bin/
+done
 
 echo "killing docker containers"
 for p in ${all_peers[*]} ; do
@@ -164,21 +208,29 @@ for p in ${all_peers[*]} ; do
 done
 echo ""
 
-echo "Installing orderer"
+echo "Remaking orderer exec"
 ssh evgenyh@${ips[$orderer]} "bash -c '. ~/.profile; cd /opt/gopath/src/github.com/hyperledger/fabric ; make orderer && make peer'"
-echo "Installing peers"
+
 for p in ${all_peers[*]} ; do
     ip=${ips[$p]}
-	echo "Installing peer $p"
+	echo "Remaking peer exec in $p"
     ssh evgenyh@${ip} "bash -c '. ~/.profile; cd /opt/gopath/src/github.com/hyperledger/fabric ; make peer' "
 done
 
+
 echo "Starting orderer"
 ssh evgenyh@${ips[$orderer]} " . ~/.profile; cd /opt/gopath/src/github.com/hyperledger/fabric ;  echo './build/bin/orderer &> orderer.out &' > start_o.sh; bash start_o.sh "
+
 for p in ${all_peers[*]} ; do
     ip=${ips[$p]}
     echo "Starting peer $p"
-	ssh evgenyh@${ip} " . ~/.profile; cd /opt/gopath/src/github.com/hyperledger/fabric ;  echo './build/bin/peer node start &> $p.out &' > start.sh; bash start.sh "
+	ssh evgenyh@${ip} " . ~/.profile; cd /opt/gopath/src/github.com/hyperledger/fabric ;  echo './build/bin/peer node start &> $p.out &' > start.sh ; bash start.sh "
+done
+
+for p in ${all_cas[*]} ; do
+    ip=${ips[$p]}
+    echo "Starting fabric-ca $p"
+	ssh evgenyh@${ip} " . ~/.profile; cd /opt/gopath/src/github.com/hyperledger/fabric-ca/bin ;  echo './fabric-ca-server start &> $p.out &' > start.sh ; bash start.sh "
 done
 
 echo "waiting for orderer and peers to be online"
@@ -198,12 +250,13 @@ while :; do
 	sleep 5
 done
 
+exit
+
 ORDERER_TLS="--tls true --cafile `pwd`/crypto-config/ordererOrganizations/example.com/orderers/${orderer_ip}.example.com/tls/ca.crt"
 export CORE_PEER_TLS_ENABLED=true
 
 sleep 20
 
-exit
 
 echo "Creating channel"
 CORE_PEER_MSPCONFIGPATH=`pwd`/crypto-config/peerOrganizations/org1.example.com/users/Admin@org1.example.com/msp CORE_PEER_LOCALMSPID=Org1MSP ./peer channel create ${ORDERER_TLS} -f example-cc.tx  -c example-cc -o ${orderer_ip}:7050
