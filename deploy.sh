@@ -111,16 +111,6 @@ echo "Generating genesis block from config"
 echo "Generating channel configs"
 ./configtxgen -profile TwoOrgsChannel -outputCreateChannelTx example-cc.tx -channelID example-cc
 
-
-org1_ca_key=`find ./crypto-config/peerOrganizations/org1.example.com/ca -name "*_sk" -printf "%f" `
-org2_ca_key=`find ./crypto-config/peerOrganizations/org2.example.com/ca -name "*_sk" -printf "%f" `
-
-echo "Creating fabric-ca-server-config file for org1 ca from template"
-cat fabric-ca-server-config_template.yaml | sed "s/CA_NAME/${org1_ca_ip}/ ; s/CA_KEY_FILE/${org1_ca_ip}-ca-key.pem/ ; s/CERTIFICATE_FILE/${org1_ca_ip}.org1.example.com-cert.pem/" > ca.org1/fabric-ca-server-config.yaml
-
-echo "Creating fabric-ca-server-config file for org2 ca from template"
-cat fabric-ca-server-config_template.yaml | sed "s/CA_NAME/${org2_ca_ip}/ ; s/CA_KEY_FILE/${org2_ca_ip}-ca-key.pem/ ; s/CERTIFICATE_FILE/${org2_ca_ip}.org2.example.com-cert.pem/" > ca.org2/fabric-ca-server-config.yaml
-
 PROPAGATEPEERNUM=${PROPAGATEPEERNUM:-3}
 i=0
 org1BootPeer=${ips[${org1_peers[0]}]}
@@ -152,22 +142,28 @@ for p in ${org2_peers[*]} ; do
         cat core.yaml.template | sed "s/PROPAGATEPEERNUM/${PROPAGATEPEERNUM}/ ; s/ORG_MSP/Org2MSP/ ; s/PEERID/$ip/ ; s/ADDRESS/$ip/ ; s/ORGLEADER/$orgLeader/ ; s/BOOTSTRAP/$org2BootPeer:7051/   ; s/TLS_CERT/$ip.example.com-cert.pem/"    > ${p}/sampleconfig/core.yaml
 done
 
-
 mv genesis.block orderer/sampleconfig/
 cp orderer.yaml orderer/sampleconfig/
 
 echo "Copying orderer msp crypto content"
-cp -r crypto-config/ordererOrganizations/example.com/orderers/${ips[orderer]}.example.com/msp/* orderer/sampleconfig/crypto
-cp -r crypto-config/ordererOrganizations/example.com/orderers/${ips[orderer]}.example.com/tls/* orderer/sampleconfig/tls
+cp -r crypto-config/ordererOrganizations/example.com/orderers/${orderer_ip}.example.com/msp/* orderer/sampleconfig/crypto
+cp -r crypto-config/ordererOrganizations/example.com/orderers/${orderer_ip}.example.com/tls/* orderer/sampleconfig/tls
 
-echo "Copying CA certificates"
-cp -r crypto-config/peerOrganizations/org1.example.com/ca/${org1_ca_ip}.org1.example.com-cert.pem ca.org1/
-cp -r crypto-config/peerOrganizations/org2.example.com/ca/${org2_ca_ip}.org2.example.com-cert.pem ca.org2/
 
-echo "Copying CA keys"
-cp -r crypto-config/peerOrganizations/org1.example.com/ca/${org1_ca_key} ca.org1/${org1_ca_ip}-ca-key.pem
-cp -r crypto-config/peerOrganizations/org2.example.com/ca/${org2_ca_key} ca.org2/${org2_ca_ip}-ca-key.pem
+for ORG in org1 org2 ; do
+    var_name=${ORG}_ca_ip
+    ca_ip=${!var_name}
+    echo "Creating fabric-ca-server-config.yaml from template file for CA of org=$ORG on ip=$ca_ip"
+    cat fabric-ca-server-config_template.yaml | sed "s/CA_NAME/${ca_ip}/ ; s/CA_KEY_FILE/${ca_ip}-ca-key.pem/ ; s/CERTIFICATE_FILE/${ca_ip}.$ORG.example.com-cert.pem/" > ca.$ORG/fabric-ca-server-config.yaml1
 
+    echo "Copying CA certificate for org=$ORG"
+    cp -r crypto-config/peerOrganizations/${ORG}.example.com/ca/${ca_ip}.${ORG}.example.com-cert.pem ca.${ORG}/
+
+    echo "Finding CA key for org=${ORG}"
+    ca_key=`find ./crypto-config/peerOrganizations/${ORG}.example.com/ca -name "*_sk" -printf "%f" `
+    echo "The found CA's key is ${ca_key}"
+    cp -r crypto-config/peerOrganizations/${ORG}.example.com/ca/${ca_key} ca.${ORG}/${ca_ip}-ca-key.pem    
+done 
 
 for p in ${org1_peers[*]} ; do
     ip=${ips[$p]}
@@ -196,8 +192,8 @@ done
 
 for p in ${all_cas[*]} ; do
     ip=${ips[$p]}
-    echo "On $p killing old fabric-ca process, deleting previous data in /bin and copying new configurations"
-    ssh evgenyh@${ip} "pkill -efx -SIGKILL \"./fabric-ca-server start\" || echo \"No fabric-ca to kill\" ; rm -rf /opt/gopath/src/github.com/hyperledger/fabric-ca/bin/* ; cd /opt/gopath/src/github.com/hyperledger/fabric-ca ; git reset HEAD --hard && git pull ; . ~/.profile ;  make fabric-ca-server"
+    echo "On $p killing old fabric-ca process, deleting previous data in /bin, builidng new ca server and copying new configurations"
+    ssh evgenyh@${ip} "pkill -efx -SIGKILL \"./fabric-ca-server start\" || echo \"No fabric-ca to kill\" ; cd /opt/gopath/src/github.com/hyperledger/fabric-ca; rm -rf bin/* ; git reset HEAD --hard && git pull ; . ~/.profile ; make fabric-ca-server"
     scp -r ${p}/* evgenyh@${ip}:/opt/gopath/src/github.com/hyperledger/fabric-ca/bin/
 done
 
@@ -210,18 +206,18 @@ for p in ${all_peers[*]} ; do
 done
 echo ""
 
-echo "Remaking orderer exec"
-ssh evgenyh@${ips[$orderer]} "bash -c '. ~/.profile; cd /opt/gopath/src/github.com/hyperledger/fabric ; make orderer && make peer'"
+echo "Remaking orderer"
+ssh evgenyh@${orderer_ip} "bash -c '. ~/.profile; cd /opt/gopath/src/github.com/hyperledger/fabric ; make orderer' "
 
 for p in ${all_peers[*]} ; do
     ip=${ips[$p]}
-	echo "Remaking peer exec in $p"
+	echo "Remaking peer in $p"
     ssh evgenyh@${ip} "bash -c '. ~/.profile; cd /opt/gopath/src/github.com/hyperledger/fabric ; make peer' "
 done
 
 
 echo "Starting orderer"
-ssh evgenyh@${ips[$orderer]} " . ~/.profile; cd /opt/gopath/src/github.com/hyperledger/fabric ;  echo './build/bin/orderer &> orderer.out &' > start_o.sh; bash start_o.sh "
+ssh evgenyh@${orderer_ip} " . ~/.profile; cd /opt/gopath/src/github.com/hyperledger/fabric ;  echo './build/bin/orderer &> orderer.out &' > start_o.sh; bash start_o.sh "
 
 for p in ${all_peers[*]} ; do
     ip=${ips[$p]}

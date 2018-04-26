@@ -3,8 +3,10 @@ ca*/
 orderer/
 crypto-config/
 
+peer
 configtxgen
 cryptogen
+
 *.block
 *.tx
 
