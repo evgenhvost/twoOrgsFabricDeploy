@@ -186,7 +186,9 @@ done
 
 echo "Killing old peers and orderer and copying new configuration"
 for p in ${orderer[*]} ${all_peers[*]} ; do
+
     ip=${ips[$p]}
+    echo "Killing $ip"
     ssh evgenyh@${ip} "pkill -eo -SIGKILL orderer ; pkill -eo -SIGKILL peer ; rm -rf /var/hyperledger/production/* ; cd /opt/gopath/src/github.com/hyperledger/fabric ; git reset HEAD --hard && git pull "
     scp -r ${p}/sampleconfig/* evgenyh@${ip}:/opt/gopath/src/github.com/hyperledger/fabric/sampleconfig/
 done

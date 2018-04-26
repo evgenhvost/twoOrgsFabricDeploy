@@ -20,16 +20,15 @@ export GOPATH=/opt/gopath
 export GOROOT=~/go
 EOF
 
-VERSION='release-1.1'    
+export VERSION='release-1.1'  
 
 sudo su - $(whoami) - << EOF
 sudo mkdir -p /var/hyperledger
 sudo chown $(whoami):$(whoami) /var/hyperledger
 sudo mkdir -p /opt/gopath/src/github.com/hyperledger/fabric
 sudo chown -R $(whoami):$(whoami)  /opt/gopath/
-git clone https://github.com/hyperledger/fabric --branch $VERSION /opt/gopath/src/github.com/hyperledger/fabric
-cd /opt/gopath/src/github.com/hyperledger/fabric
-make gotools
-make peer orderer peer-docker orderer-docker
+git clone https://github.com/hyperledger/fabric-ca --branch $VERSION /opt/gopath/src/github.com/hyperledger/fabric-ca
+cd /opt/gopath/src/github.com/hyperledger/fabric-ca
+make fabric-ca-server
 EOF
 
