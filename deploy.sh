@@ -117,7 +117,7 @@ org1BootPeer=${ips[${org1_peers[0]}]}
 for p in ${orderer[*]} ${org1_peers[*]} ; do
         ip=${ips[$p]}
         orgLeader=false
-        orgMsp=OrdererOrg
+        orgMsp=OrdererMSP
         if [[ ${i} -eq 1 ]] ; then
             orgLeader=true
         fi
@@ -154,7 +154,7 @@ for ORG in org1 org2 ; do
     var_name=${ORG}_ca_ip
     ca_ip=${!var_name}
     echo "Creating fabric-ca-server-config.yaml from template file for CA of org=$ORG on ip=$ca_ip"
-    cat fabric-ca-server-config_template.yaml | sed "s/CA_NAME/${ca_ip}/ ; s/CA_KEY_FILE/${ca_ip}-ca-key.pem/ ; s/CERTIFICATE_FILE/${ca_ip}.$ORG.example.com-cert.pem/" > ca.$ORG/fabric-ca-server-config.yaml1
+    cat fabric-ca-server-config_template.yaml | sed "s/CA_NAME/${ca_ip}/ ; s/CA_KEY_FILE/${ca_ip}-ca-key.pem/ ; s/CERTIFICATE_FILE/${ca_ip}.$ORG.example.com-cert.pem/" > ca.$ORG/fabric-ca-server-config.yaml
 
     echo "Copying CA certificate for org=$ORG"
     cp -r crypto-config/peerOrganizations/${ORG}.example.com/ca/${ca_ip}.${ORG}.example.com-cert.pem ca.${ORG}/
@@ -182,7 +182,6 @@ done
 
 echo "Killing old peers and orderer and copying new configuration"
 for p in ${orderer[*]} ${all_peers[*]} ; do
-
     ip=${ips[$p]}
     echo "Killing $ip"
     ssh evgenyh@${ip} "pkill -eo -SIGKILL orderer ; pkill -eo -SIGKILL peer ; rm -rf /var/hyperledger/production/* ; cd /opt/gopath/src/github.com/hyperledger/fabric ; git reset HEAD --hard && git pull "
@@ -217,12 +216,12 @@ done
 
 
 echo "Starting orderer"
-ssh evgenyh@${orderer_ip} " . ~/.profile; cd /opt/gopath/src/github.com/hyperledger/fabric ;  echo './build/bin/orderer &> orderer.out &' > start_o.sh; bash start_o.sh "
+ssh evgenyh@${orderer_ip} " . ~/.profile;   cd /opt/gopath/src/github.com/hyperledger/fabric ;  echo './build/bin/orderer &> orderer.out &' > start_o.sh; bash start_o.sh "
 
 for p in ${all_peers[*]} ; do
     ip=${ips[$p]}
     echo "Starting peer $p"
-	ssh evgenyh@${ip} " . ~/.profile; cd /opt/gopath/src/github.com/hyperledger/fabric ;  echo './build/bin/peer node start &> $p.out &' > start.sh ; bash start.sh "
+	ssh evgenyh@${ip} " . ~/.profile;       cd /opt/gopath/src/github.com/hyperledger/fabric ;  echo './build/bin/peer node start &> $p.out &' > start.sh ; bash start.sh "
 done
 
 for p in ${all_cas[*]} ; do
