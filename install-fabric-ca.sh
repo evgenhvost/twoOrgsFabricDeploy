@@ -1,5 +1,7 @@
 #!/bin/bash
 
+GO_VERSION="1.10.3"
+
 sudo apt-get update
 sudo apt-key adv --keyserver hkp://p80.pool.sks-keyservers.net:80 --recv-keys 58118E89F3A912897C070ADBF76221572C52609D
 sudo apt-add-repository 'deb https://apt.dockerproject.org/repo ubuntu-xenial main'
@@ -9,10 +11,10 @@ sudo apt-get install -y docker-engine
 sudo apt-get install -y libltdl3-dev
 sudo apt-get install -y build-essential
 sudo usermod -aG docker $(whoami)
-sudo curl -o /usr/local/bin/docker-compose -L "https://github.com/docker/compose/releases/download/1.21.0/docker-compose-$(uname -s)-$(uname -m)"
+sudo curl -o /usr/local/bin/docker-compose -L "https://github.com/docker/compose/releases/download/1.21.2/docker-compose-$(uname -s)-$(uname -m)"
 sudo chmod +x /usr/local/bin/docker-compose
-wget https://storage.googleapis.com/golang/go1.10.1.linux-amd64.tar.gz
-tar xpzf go1.10.1.linux-amd64.tar.gz
+wget https://storage.googleapis.com/golang/go${GO_VERSION}.linux-amd64.tar.gz
+tar xpzf go${GO_VERSION}.linux-amd64.tar.gz
 
 cat << EOF >> ~/.profile
 export PATH=$PATH:~/go/bin/

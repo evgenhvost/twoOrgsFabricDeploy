@@ -3,7 +3,7 @@
 ssh-add ~/.ssh/fabric.rsa
 
 getIP() {
-        ssh $1 "ip addr | grep 'inet .*global' | cut -f 6 -d ' ' | cut -f1 -d '/' | head -n 1"
+    ssh $1 "ip addr | grep 'inet .*global' | cut -f 6 -d ' ' | cut -f1 -d '/' | head -n 1"
 }
 
 probePeerOrOrderer() {
@@ -34,8 +34,8 @@ invoke() {
 [[ -z $GOPATH ]] && (echo "Environment variable GOPATH isn't set!"; exit 1)
 FABRIC=$GOPATH/src/github.com/hyperledger/fabric
 [[ -d "$FABRIC" ]] || (echo "Directory $FABRIC doesn't exist!"; exit 1)
+rm -rf configtxgen peer cryptogen
 for file in configtxgen peer cryptogen; do
-	[[ -f $file ]] && continue
 	binary=$FABRIC/build/bin/$file
 	[[ ! -f $binary ]] && ( cd $FABRIC ; make $file)
 	cp $binary $file && continue
