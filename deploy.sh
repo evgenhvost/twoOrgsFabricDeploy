@@ -13,7 +13,7 @@ probePeerOrOrderer() {
 }
 
 checkDir() {
-    ssh evgenyh@$1 "ls $2 &> /dev/null || echo 'not found'" | grep -q "not found"
+    ssh nimble@$1 "ls $2 &> /dev/null || echo 'not found'" | grep -q "not found"
     if [ $? -eq 0 ];then
             echo "1"
             return
@@ -23,8 +23,8 @@ checkDir() {
 
 deployFabricScript() {
         echo "Deploying script '$2' to '$1' and running it"
-        scp $2 evgenyh@$1:$2
-        ssh evgenyh@$1 "bash $2"
+        scp $2 nimble@$1:$2
+        ssh nimble@$1 "bash $2"
 }
 
 invoke() {
@@ -45,20 +45,28 @@ for file in configtxgen peer cryptogen; do
 	[[ ! -f $file ]] && echo "$file isn't found, aborting!" && exit 1
 done
 
+# vms-network
 org1_peers=( peer0.org1 peer1.org1 )
+declare -A ips=(    ["orderer"]="9.148.244.225" \
+                    ["peer0.org1"]="9.148.245.3" \
+                    ["peer1.org1"]="9.148.245.10" \
+                    ["peer0.org2"]="9.148.244.243" \
+                    ["ca.org1"]="9.148.245.3" \
+                    ["ca.org2"]="9.148.244.243" )
+
+# public-test-network
+#org1_peers=( "peer0.org1" )
+#declare -A ips=(    ["orderer"]="161.156.70.125" \
+#                    ["peer0.org1"]="161.156.70.114" \
+#                    ["peer0.org2"]="161.156.70.120" \
+#                    ["ca.org1"]="161.156.70.114" \
+#                    ["ca.org2"]="161.156.70.120" )
+
 org2_peers=( "peer0.org2" )
 orderer=( orderer )
 
 all_peers=( "${org1_peers[@]}" "${org2_peers[@]}" )
 all_cas=( "ca.org1" "ca.org2" )
-
-declare -A ips=(    ["orderer"]="9.148.244.225" \
-                    ["peer0.org1"]="9.148.245.3" \
-                    ["peer1.org1"]="9.148.245.10" \
-                    ["peer0.org2"]="9.148.244.243" \
-                    ["peer1.org2"]="9.148.244.225" \
-                    ["ca.org1"]="9.148.245.3" \
-                    ["ca.org2"]="9.148.244.243" )
 
 orderer_ip=${ips["orderer"]}
 org1_ca_ip=${ips["ca.org1"]}
@@ -184,50 +192,50 @@ echo "Killing old peers and orderer and copying new configuration"
 for p in ${orderer[*]} ${all_peers[*]} ; do
     ip=${ips[$p]}
     echo "Killing $ip"
-    ssh evgenyh@${ip} "pkill -eo -SIGKILL orderer ; pkill -eo -SIGKILL peer ; rm -rf /var/hyperledger/production/* ; cd /opt/gopath/src/github.com/hyperledger/fabric ; git reset HEAD --hard && git pull "
-    scp -r ${p}/sampleconfig/* evgenyh@${ip}:/opt/gopath/src/github.com/hyperledger/fabric/sampleconfig/
+    ssh nimble@${ip} "pkill -eo -SIGKILL orderer ; pkill -eo -SIGKILL peer ; rm -rf /var/hyperledger/production/* ; cd /opt/gopath/src/github.com/hyperledger/fabric ; git reset HEAD --hard && git pull "
+    scp -r ${p}/sampleconfig/* nimble@${ip}:/opt/gopath/src/github.com/hyperledger/fabric/sampleconfig/
 done
 
 
 for p in ${all_cas[*]} ; do
     ip=${ips[$p]}
     echo "On $p killing old fabric-ca process, deleting previous data in /bin, builidng new ca server and copying new configurations"
-    ssh evgenyh@${ip} "pkill -efx -SIGKILL \"./fabric-ca-server start\" || echo \"No fabric-ca to kill\" ; cd /opt/gopath/src/github.com/hyperledger/fabric-ca; rm -rf bin/* ; git reset HEAD --hard && git pull ; . ~/.profile ; make fabric-ca-server"
-    scp -r ${p}/* evgenyh@${ip}:/opt/gopath/src/github.com/hyperledger/fabric-ca/bin/
+    ssh nimble@${ip} "pkill -efx -SIGKILL \"./fabric-ca-server start\" || echo \"No fabric-ca to kill\" ; cd /opt/gopath/src/github.com/hyperledger/fabric-ca; rm -rf bin/* ; git reset HEAD --hard && git pull ; . ~/.profile ; make fabric-ca-server"
+    scp -r ${p}/* nimble@${ip}:/opt/gopath/src/github.com/hyperledger/fabric-ca/bin/
 done
 
 echo "killing docker containers"
 for p in ${all_peers[*]} ; do
     ip=${ips[$p]}
-    ssh evgenyh@${ip} "docker ps -aq | xargs docker kill &> /dev/null " || echo -n "."
-    ssh evgenyh@${ip} "docker ps -aq | xargs docker rm &> /dev/null " || echo -n "."
-    ssh evgenyh@${ip} "docker images | grep 'dev-' | awk '{print $3}' | xargs docker rmi &> /dev/null " || echo -n "."
+    ssh nimble@${ip} "docker ps -aq | xargs docker kill &> /dev/null " || echo -n "."
+    ssh nimble@${ip} "docker ps -aq | xargs docker rm &> /dev/null " || echo -n "."
+    ssh nimble@${ip} "docker images | grep 'dev-' | awk '{print $3}' | xargs docker rmi &> /dev/null " || echo -n "."
 done
 echo ""
 
 echo "Remaking orderer"
-ssh evgenyh@${orderer_ip} "bash -c '. ~/.profile; cd /opt/gopath/src/github.com/hyperledger/fabric ; make orderer' "
+ssh nimble@${orderer_ip} "bash -c '. ~/.profile; cd /opt/gopath/src/github.com/hyperledger/fabric ; make orderer' "
 
 for p in ${all_peers[*]} ; do
     ip=${ips[$p]}
 	echo "Remaking peer in $p"
-    ssh evgenyh@${ip} "bash -c '. ~/.profile; cd /opt/gopath/src/github.com/hyperledger/fabric ; make peer' "
+    ssh nimble@${ip} "bash -c '. ~/.profile; cd /opt/gopath/src/github.com/hyperledger/fabric ; make peer' "
 done
 
 
 echo "Starting orderer"
-ssh evgenyh@${orderer_ip} " . ~/.profile;   cd /opt/gopath/src/github.com/hyperledger/fabric ;  echo './build/bin/orderer &> orderer.out &' > start_o.sh; bash start_o.sh "
+ssh nimble@${orderer_ip} " . ~/.profile;   cd /opt/gopath/src/github.com/hyperledger/fabric ;  echo './build/bin/orderer &> orderer.out &' > start_o.sh; bash start_o.sh "
 
 for p in ${all_peers[*]} ; do
     ip=${ips[$p]}
     echo "Starting peer $p"
-	ssh evgenyh@${ip} " . ~/.profile;       cd /opt/gopath/src/github.com/hyperledger/fabric ;  echo './build/bin/peer node start &> $p.out &' > start.sh ; bash start.sh "
+	ssh nimble@${ip} " . ~/.profile;       cd /opt/gopath/src/github.com/hyperledger/fabric ;  echo './build/bin/peer node start &> $p.out &' > start.sh ; bash start.sh "
 done
 
 for p in ${all_cas[*]} ; do
     ip=${ips[$p]}
     echo "Starting fabric-ca $p"
-	ssh evgenyh@${ip} " . ~/.profile; cd /opt/gopath/src/github.com/hyperledger/fabric-ca/bin ;  echo './fabric-ca-server start &> $p.out &' > start.sh ; bash start.sh "
+	ssh nimble@${ip} " . ~/.profile; cd /opt/gopath/src/github.com/hyperledger/fabric-ca/bin ;  echo './fabric-ca-server start &> $p.out &' > start.sh ; bash start.sh "
 done
 
 echo "waiting for orderer and peers to be online"

@@ -12,7 +12,7 @@ OrdererOrgs:
     # "Specs" - See PeerOrgs below for complete description
     # ---------------------------------------------------------------------------
     Specs:
-      - Hostname: 9.148.244.225
+      - Hostname: 161.156.70.125
 
 # ---------------------------------------------------------------------------
 # "PeerOrgs" - Definition of organizations managing peer nodes
@@ -24,8 +24,7 @@ PeerOrgs:
   - Name: Org1
     Domain: org1.example.com
     Specs:
-      - Hostname: 9.148.245.3
-      - Hostname: 9.148.245.10
+      - Hostname: 161.156.70.114
     # ---------------------------------------------------------------------------
     # "CA"
     # ---------------------------------------------------------------------------
@@ -33,7 +32,7 @@ PeerOrgs:
     # organization.  This entry is a Spec.  See "Specs" section below for details.
     # ---------------------------------------------------------------------------
     CA:
-      Hostname: 9.148.245.3 # implicitly ca.org1.example.com
+      Hostname: 161.156.70.114 # implicitly ca.org1.example.com
 
     # ---------------------------------------------------------------------------
     # "Specs"
@@ -103,9 +102,9 @@ PeerOrgs:
   - Name: Org2
     Domain: org2.example.com
     Specs:
-      - Hostname: 9.148.244.243
+      - Hostname: 161.156.70.120
     CA:
-      Hostname: 9.148.244.243
+      Hostname: 161.156.70.120
 
 #    Template:
 #      Count: 2
